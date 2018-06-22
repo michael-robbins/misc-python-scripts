@@ -296,7 +296,7 @@ if __name__ == "__main__":
                     )
                     new_csv_header.extend(csv_header[range_start:range_end])
                 else:
-                    new_csv_header.append(csv_header[column_spec])
+                    new_csv_header.append(csv_header[int(column_spec)])
 
             writer.writerow(new_csv_header)
         else:
