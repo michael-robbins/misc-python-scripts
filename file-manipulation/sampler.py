@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import io
 import os
@@ -42,8 +42,8 @@ def locate_files(folder, file_glob):
     :param file_glob: 
     :return: 
     """
-    for file in glob.glob(os.path.join(folder, file_glob)):
-        yield file
+    for i in glob.glob(os.path.join(folder, file_glob)):
+        yield i
 
 
 def sample_file(reader, timestamp_column, timestamp_format, timestamp_delta):
