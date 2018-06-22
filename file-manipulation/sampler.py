@@ -55,7 +55,6 @@ def sample_file(reader, timestamp_column, timestamp_format, timestamp_delta):
     :param timestamp_delta: 
     :return: 
     """
-
     header = list()
     samples = list()
 
@@ -81,6 +80,57 @@ def sample_file(reader, timestamp_column, timestamp_format, timestamp_delta):
             # print("Appending our next sample at {0}".format(timestamp.strftime("%H:%M:%S")))
 
     return header, samples
+
+
+def build_output_filename(args, prefix="Samples", ext=".csv"):
+    """
+    Given the cmd args, a prefix and extension return a valid consistent filename
+    :param args:
+    :param prefix:
+    :param ext:
+    :return:
+    """
+    parts = [prefix]
+
+    if args.file_prefix is not None:
+        parts.append(str(args.file_prefix))
+
+    if args.file_date is not None:
+        parts.append(str(args.file_date))
+    elif args.file_start_date is not None and args.file_end_date is not None:
+        parts.append("{0}-{1}".format(args.file_start_date, args.file_end_date))
+
+    if args.file_postfix is not None:
+        parts.append(str(args.file_postfix))
+
+    output_filename = "_".join(parts) + ext
+
+    return os.path.join(args.output_folder, output_filename)
+
+
+def map_column_spec_to_row(column_spec, row):
+    """
+    Maps the provided column spec to a row, returns what the column spec dictates
+    Eg.
+        For a given input row: ['a', 'b', 'c', 'd', 'e', 'f']
+
+        '1,2,3'   => ['a', 'b', 'c']
+        '1,3-5'   => ['a', 'c', 'd', 'e']
+        '1-3,5,2' => ['a', 'b', 'c', 'e', 'b']
+    :param column_spec:
+    :param row:
+    :return:
+    """
+    new_row = []
+
+    for token in column_spec.split(","):
+        if "-" in token:
+            range_start, range_end = map(int, token.split("-"))
+            new_row.append(row[range_start:range_end])
+        else:
+            new_row.append(row[int(token)])
+
+    return new_row
 
 
 if __name__ == "__main__":
@@ -228,55 +278,8 @@ if __name__ == "__main__":
             "You need to provide either --file-date OR (--file-start-date AND --file-end-date)"
         )
 
-    # Loop over each found file and process it
-    csv_header = []
-    csv_samples = []
-
-    for date in dates:
-        # Attempt to build the 'glob' that will return all our files for the given date
-        filename_glob = build_file_glob(
-            args.file_prefix,
-            date.strftime("%Y%m%d"),
-            args.file_postfix,
-            args.file_extension,
-        )
-
-        for zip_filename in locate_files(args.file_folder, filename_glob):
-            print("Processing: {0}".format(zip_filename))
-            # The name of the CSV file within the ZIP is the name of the zip file with the file extension swapped
-            csv_filename = os.path.basename(zip_filename.replace(".zip", ".csv"))
-
-            with zipfile.ZipFile(zip_filename) as zip_file:
-                with zip_file.open(csv_filename) as csv_file:
-                    csv_reader = csv.reader(
-                        io.TextIOWrapper(csv_file), delimiter=args.file_delimiter
-                    )
-                    file_header, file_samples = sample_file(csv_reader, **config)
-
-                    if not csv_header:
-                        csv_header = file_header
-
-                    if csv_header != file_header:
-                        print("WARNING: CSV Headers are different between ZIP files?")
-
-                    csv_samples.extend(file_samples)
-
-    # Build the output filename
-    output_filename = "Samples"
-
-    if args.file_prefix is not None:
-        output_filename += "_{0}".format(args.file_prefix)
-
-    if args.file_date is not None:
-        output_filename += "_{0}".format(args.file_date)
-    elif args.file_start_date is not None and args.file_end_date is not None:
-        output_filename += "_{0}-{1}".format(args.file_start_date, args.file_end_date)
-
-    if args.file_postfix is not None:
-        output_filename += "_{0}".format(args.file_postfix)
-
-    output_filename += ".csv"
-    output_filename = os.path.join(args.output_folder, output_filename)
+    # Open the output file
+    output_filename = build_output_filename(args)
     print("Writing to: {0}".format(output_filename))
 
     # Write out to the output file
@@ -285,37 +288,57 @@ if __name__ == "__main__":
             output_file, delimiter=args.output_delimiter, lineterminator="\n"
         )
 
-        # Write the header
-        if args.output_columns is not None:
-            new_csv_header = []
+        # Loop over each found file and process it
+        csv_header = []
+        header_written = False
 
-            for column_spec in args.output_columns.split(","):
-                if "-" in column_spec:
-                    range_start, range_end = map(
-                        lambda x: int(x), column_spec.split("-")
-                    )
-                    new_csv_header.extend(csv_header[range_start:range_end])
-                else:
-                    new_csv_header.append(csv_header[int(column_spec)])
+        for date in dates:
+            # Attempt to build the 'glob' that will return all our files for the given date
+            filename_glob = build_file_glob(
+                args.file_prefix,
+                date.strftime("%Y%m%d"),
+                args.file_postfix,
+                args.file_extension,
+            )
 
-            writer.writerow(new_csv_header)
-        else:
-            writer.writerow(csv_header)
+            for zip_filename in locate_files(args.file_folder, filename_glob):
+                print("Processing: {0}".format(zip_filename))
+                # The name of the CSV file within the ZIP is the name of the zip file with the file extension swapped
+                csv_filename = os.path.basename(zip_filename.replace(".zip", ".csv"))
 
-        # Write out all samples
-        for _, sample_row in csv_samples:
-            if args.output_columns is not None:
-                new_sample_row = []
-
-                for column_spec in args.output_columns.split(","):
-                    if "-" in column_spec:
-                        range_start, range_end = map(
-                            lambda x: int(x), column_spec.split("-")
+                with zipfile.ZipFile(zip_filename) as zip_file:
+                    with zip_file.open(csv_filename) as csv_file:
+                        csv_reader = csv.reader(
+                            io.TextIOWrapper(csv_file), delimiter=args.file_delimiter
                         )
-                        new_sample_row.extend(sample_row[range_start:range_end])
-                    else:
-                        new_sample_row.append(sample_row[column_spec])
+                        file_header, file_samples = sample_file(csv_reader, **config)
 
-                writer.writerow(new_sample_row)
-            else:
-                writer.writerow(sample_row)
+                        if not header_written:
+                            csv_header = file_header
+
+                            if args.output_columns is not None:
+                                writer.writerow(
+                                    map_column_spec_to_row(
+                                        args.output_columns, csv_header
+                                    )
+                                )
+                            else:
+                                writer.writerow(csv_header)
+
+                            header_written = True
+
+                        if csv_header != file_header:
+                            print(
+                                "WARNING: CSV Headers are different between ZIP files?"
+                            )
+
+                        # Write out all samples
+                        for sample_row in file_samples:
+                            if args.output_columns is not None:
+                                writer.writerow(
+                                    map_column_spec_to_row(
+                                        args.output_columns, sample_row
+                                    )
+                                )
+                            else:
+                                writer.writerow(sample_row)
